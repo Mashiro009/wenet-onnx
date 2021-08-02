@@ -120,6 +120,12 @@ class BaseEncoder(torch.nn.Module):
     def output_size(self) -> int:
         return self._output_size
 
+    def set_onnx_mode(self, onnx_mode=False):
+        """IF output a onnx mode."""
+        self.onnx_mode = onnx_mode
+        for layer in self.encoders:
+            layer.set_onnx_mode(onnx_mode)
+
     def forward(
         self,
         xs: torch.Tensor,
@@ -179,7 +185,7 @@ class BaseEncoder(torch.nn.Module):
         """ Forward just one chunk
 
         Args:
-            xs (torch.Tensor): chunk input
+            xs (torch.Tensor): chunk input (batch=1, len, dim) dim always=80
             offset (int): current offset in encoder output time stamp
             required_cache_size (int): cache size required for next chunk
                 compuation
@@ -199,19 +205,20 @@ class BaseEncoder(torch.nn.Module):
             List[torch.Tensor]: conformer cnn cache
 
         """
+        # batch size must be 1 because is interface
         assert xs.size(0) == 1
         # tmp_masks is just for interface compatibility
         tmp_masks = torch.ones(1,
                                xs.size(1),
                                device=xs.device,
-                               dtype=torch.bool)
-        tmp_masks = tmp_masks.unsqueeze(1)
+                               dtype=torch.bool) #(1,len)
+        tmp_masks = tmp_masks.unsqueeze(1) #(1,1,len)
         if self.global_cmvn is not None:
             xs = self.global_cmvn(xs)
-        xs, pos_emb, _ = self.embed(xs, tmp_masks, offset)
+        xs, pos_emb, _ = self.embed(xs, tmp_masks, offset) # xs (1,len/subsampleing,256)?
         if subsampling_cache is not None:
             cache_size = subsampling_cache.size(1)
-            xs = torch.cat((subsampling_cache, xs), dim=1)
+            xs = torch.cat((subsampling_cache, xs), dim=1) # cache and chunkxs cat together
         else:
             cache_size = 0
         pos_emb = self.embed.position_encoding(offset - cache_size, xs.size(1))
@@ -299,6 +306,7 @@ class BaseEncoder(torch.nn.Module):
         # Feed forward overlap input step by step
         for cur in range(0, num_frames - context + 1, stride):
             end = min(cur + decoding_window, num_frames)
+            end = torch.tensor(end,dtype=int)
             chunk_xs = xs[:, cur:end, :]
             (y, subsampling_cache, elayers_output_cache,
              conformer_cnn_cache) = self.forward_chunk(chunk_xs, offset,
@@ -308,11 +316,117 @@ class BaseEncoder(torch.nn.Module):
                                                        conformer_cnn_cache)
             outputs.append(y)
             offset += y.size(1)
+
         ys = torch.cat(outputs, 1)
         masks = torch.ones(1, ys.size(1), device=ys.device, dtype=torch.bool)
         masks = masks.unsqueeze(1)
         return ys, masks
 
+    def forward_chunk_onnx(
+        self,
+        xs: torch.Tensor,
+        offset,
+        required_cache_size,
+        subsampling_cache: Optional[torch.Tensor] = None,
+        elayers_output_cache: Optional[torch.Tensor] = None,
+        conformer_cnn_cache: Optional[torch.Tensor] = None,
+    ) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor,
+               torch.Tensor]:
+        """ Forward just one chunk
+
+        Args:
+            xs (torch.Tensor): chunk input (batch=1, len, dim) dim always=80
+            offset (int): current offset in encoder output time stamp
+            required_cache_size (int): cache size required for next chunk
+                compuation
+                >=0: actual cache size
+                <0: means all history cache is required
+            subsampling_cache (Optional[torch.Tensor]): subsampling cache  (batch,cache_len,dim)
+            elayers_output_cache (Optional[torch.Tensor]):  (encode_layer_index,batch,cache_len,dim)
+                transformer/conformer encoder layers output cache
+            conformer_cnn_cache (Optional[torch.Tensor]): conformer (encode_layer_index,batch,channels=dim,cache_len)
+                cnn cache
+
+        Returns:
+            torch.Tensor: output of current input xs
+            torch.Tensor: subsampling cache required for next chunk computation
+            torch.Tensor: encoder layers output cache required for next
+                chunk computation
+            torch.Tensor: conformer cnn cache
+
+        """
+        # batch size must be 1 because is interface
+        assert xs.size(0) == 1
+        # tmp_masks is just for interface compatibility
+        tmp_masks = torch.ones(1,
+                               xs.size(1),
+                               device=xs.device,
+                               dtype=torch.bool) #(1,len)
+        tmp_masks = tmp_masks.unsqueeze(1) #(1,1,len)
+        if self.global_cmvn is not None:
+            xs = self.global_cmvn(xs)
+        # xs, pos_emb, _ = self.embed(xs, tmp_masks, offset) # xs (1,len/subsampleing,256)?
+        # offset = orgoffset + 1 
+        xs, pos_emb, _ = self.embed(xs, tmp_masks, offset-1) # xs (1,len/subsampleing,256)?
+        if subsampling_cache is not None:
+            cache_size = subsampling_cache.size(1)
+            xs = torch.cat((subsampling_cache, xs), dim=1) # cache and chunkxs cat together
+        # else:
+        #     cache_size = 0
+        # pos_emb = self.embed.position_encoding(offset - cache_size, xs.size(1)-1)
+        pos_emb = self.embed.position_encoding_onnx(offset - cache_size, xs)
+        if required_cache_size < 0:
+            # next_cache_start = 0
+            next_cache_start = 1 # 因为subsampling_cache已经跟xs合并了 所以要把废值扔掉
+        elif required_cache_size == 0:
+            next_cache_start = xs.size(1)
+        else:
+            # next_cache_start = max(xs.size(1) - required_cache_size, 0)
+            next_cache_start = max(xs.size(1) - required_cache_size, 1)
+        r_subsampling_cache = torch.cat((torch.zeros(1,1,256),xs[:, next_cache_start:, :]),1) # 每一个cache len=1时都有一个废值
+        # subsampling_cache (Optional[torch.Tensor]): subsampling cache  (batch,cache_len,dim)
+    
+        # Real mask for transformer/conformer layers
+        masks = torch.ones(1, xs.size(1), device=xs.device, dtype=torch.bool)
+        masks = masks.unsqueeze(1)
+        # r_elayers_output_cache = []
+        # r_conformer_cnn_cache = []
+        r_elayers_output_cache = torch.zeros(0,1,xs.size(1)-next_cache_start+1,256)
+        r_conformer_cnn_cache = torch.zeros(0,1,256,15)
+        # r_elayers_output_cache (Optional[torch.Tensor]):  (encode_layer_index,batch,cache_len,dim)
+        # conformer_cnn_cache (Optional[torch.Tensor]):  (encode_layer_index,batch,channels=dim,cache_len)
+        for i, layer in enumerate(self.encoders):
+            if elayers_output_cache is None:
+                attn_cache = None
+            else:
+                attn_cache = elayers_output_cache[i]
+            if conformer_cnn_cache is None:
+                cnn_cache = None
+            else:
+                cnn_cache = conformer_cnn_cache[i]
+            xs, _, new_cnn_cache = layer(xs,
+                                         masks,
+                                         pos_emb,
+                                         output_cache=attn_cache,
+                                         cnn_cache=cnn_cache)
+            # r_elayers_output_cache.append(xs[:, next_cache_start:, :])
+            tmp_elayers_output_for_cache = xs[:, next_cache_start:, :]
+            tmp_elayers_output_for_cache = torch.nn.functional.pad(tmp_elayers_output_for_cache, (0,0,1,0), mode='constant', value=0)
+            r_elayers_output_cache = torch.cat((r_elayers_output_cache, tmp_elayers_output_for_cache.unsqueeze(0)), 0)
+            # r_conformer_cnn_cache.append(new_cnn_cache)
+            r_conformer_cnn_cache = torch.cat((r_conformer_cnn_cache, new_cnn_cache.unsqueeze(0)), 0)
+        if self.normalize_before:
+            xs = self.after_norm(xs[:,1:,:])
+            xs = torch.nn.functional.pad(xs, (0,0,1,0), mode='constant', value=0)
+
+        @torch.jit.script
+        def slice_helper(xs,subsampling_cache):
+            return xs[:, subsampling_cache.size(1):, :]
+        # return (xs[:, cache_size:, :], r_subsampling_cache,
+        #         r_elayers_output_cache, r_conformer_cnn_cache)
+        return (slice_helper(xs,subsampling_cache), r_subsampling_cache,
+                r_elayers_output_cache, r_conformer_cnn_cache)
+    
 
 class TransformerEncoder(BaseEncoder):
     """Transformer encoder module."""

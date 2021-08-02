@@ -43,6 +43,7 @@ class ConvolutionModule(nn.Module):
         #    padded with self.lorder frames on the left in forward.
         # else: it's a symmetrical convolution
         if causal:
+            # 如果是因果卷积，就需要第一帧前面有lorder的0 padding
             padding = 0
             self.lorder = kernel_size - 1
         else:
@@ -102,6 +103,7 @@ class ConvolutionModule(nn.Module):
 
         if self.lorder > 0:
             if cache is None:
+                # 如果是因果卷积，就需要第一帧前面有lorder的0 padding
                 x = nn.functional.pad(x, (self.lorder, 0), 'constant', 0.0)
             else:
                 assert cache.size(0) == x.size(0)

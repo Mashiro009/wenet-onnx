@@ -47,23 +47,54 @@ TorchAsrDecoder::TorchAsrDecoder(
     }
     iter.Next();
   }
+
+  // Create a vector of inputs.
+  // std::vector<torch::jit::IValue> inputs;
+  // inputs.push_back(torch::ones({1, 3, 224, 224}));
+  /*
+  *
+  https://mp.weixin.qq.com/s/ZLZ4F2E_wYEMODGWzdhDRg
+  导出模型后，WeNet的runtime也需要根据导出的模型进行修改，
+  最主要是对dummy的张量的处理，如原本的TorchAsrDecoder中，
+  初始化的subsampling_cache_、elayers_output_cache_、
+  conformer_cnn_cache_应按照对应大小设置为全为0的张量
+  （其他数字也可以，反正不会参与运算），
+  对应的，offset_初始值应该设置为1，每次Reset的时候也应重新设置为上述值。
+  其他方面按照onnxruntime给定的API以及demo就可以顺利完成后续集成的工作。
+  *
+  * 
+  * */
+  subsampling_cache_ = std::move(torch::ones({1, 1, 256}))
+  elayers_output_cache_ = std::move(torch::ones({12, 1, 1, 256}))
+  conformer_cnn_cache_ = std::move(torch::ones({12, 1, 256, 14}))
+
 }
 
 void TorchAsrDecoder::Reset() {
   start_ = false;
   result_.clear();
-  offset_ = 0;
+    /*
+  每次Reset的时候也应重新设置为上述值。
+
+  */
+  // offset_ = 0;
+  offset_ = 1;
   num_frames_ = 0;
   global_frame_offset_ = 0;
   num_frames_in_current_chunk_ = 0;
-  subsampling_cache_ = std::move(torch::jit::IValue());
-  elayers_output_cache_ = std::move(torch::jit::IValue());
-  conformer_cnn_cache_ = std::move(torch::jit::IValue());
+  // subsampling_cache_ = std::move(torch::jit::IValue());
+  // elayers_output_cache_ = std::move(torch::jit::IValue());
+  // conformer_cnn_cache_ = std::move(torch::jit::IValue());
+  subsampling_cache_ = std::move(torch::ones({1, 1, 256}))
+  elayers_output_cache_ = std::move(torch::ones({12, 1, 1, 256}))
+  conformer_cnn_cache_ = std::move(torch::ones({12, 1, 256, 14}))
   encoder_outs_.clear();
   cached_feature_.clear();
   searcher_->Reset();
   feature_pipeline_->Reset();
   ctc_endpointer_->Reset();
+
+
 }
 
 void TorchAsrDecoder::ResetContinuousDecoding() {

@@ -11,6 +11,15 @@ import torch
 from torch import nn
 
 
+# @torch.jit.script
+# def slice_helper(x, offset):
+#     return x[:, -offset: , : ]
+
+@torch.jit.script
+def slice_helper2(x, a, b):
+    chunk = a.size(1) - b.size(1)
+    return x[:, -chunk: , : ]
+
 class TransformerEncoderLayer(nn.Module):
     """Encoder layer module.
 
@@ -53,6 +62,7 @@ class TransformerEncoderLayer(nn.Module):
         # concat_linear may be not used in forward fuction,
         # but will be saved in the *.pt
         self.concat_linear = nn.Linear(size + size, size)
+        self.set_onnx_mode(False)
 
     def forward(
         self,
@@ -81,6 +91,10 @@ class TransformerEncoderLayer(nn.Module):
             torch.Tensor: Mask tensor (#batch, time).
 
         """
+        if self.onnx_mode:
+            x = x[:,1:,:]
+            mask = mask[:,:,1:]
+            output_cache = output_cache[:,1:,:]
         residual = x
         if self.normalize_before:
             x = self.norm1(x)
@@ -88,13 +102,34 @@ class TransformerEncoderLayer(nn.Module):
         if output_cache is None:
             x_q = x
         else:
-            assert output_cache.size(0) == x.size(0)
-            assert output_cache.size(2) == self.size
-            assert output_cache.size(1) < x.size(1)
-            chunk = x.size(1) - output_cache.size(1)
-            x_q = x[:, -chunk:, :]
-            residual = residual[:, -chunk:, :]
-            mask = mask[:, -chunk:, :]
+            # assert output_cache.size(0) == x.size(0)
+            # assert output_cache.size(2) == self.size
+            # assert output_cache.size(1) < x.size(1)
+
+            # 参考 https://mp.weixin.qq.com/s/ZLZ4F2E_wYEMODGWzdhDRg 修改代码
+            if self.onnx_mode:
+                # chunk = x.size(1) - output_cache.size(1) + 1
+                chunk = x.size(1) - output_cache.size(1)
+            else:
+                chunk = x.size(1) - output_cache.size(1)
+
+            if self.onnx_mode:
+                # chunk = torch.tensor(chunk)
+                # x_q = slice_helper(x, chunk)
+                # residual = slice_helper(residual, chunk)
+                # mask = slice_helper(mask, chunk)
+                x_q = slice_helper2(x, x,output_cache)
+                residual = slice_helper2(residual, x,output_cache)
+                mask = slice_helper2(mask, x,output_cache)
+            else:
+                x_q = x[:, -chunk:, :]
+                residual = residual[:, -chunk:, :]
+                mask = mask[:, -chunk:, :]
+
+            # chunk = x.size(1) - output_cache.size(1)
+            # x_q = x[:, -chunk:, :]
+            # residual = residual[:, -chunk:, :]
+            # mask = mask[:, -chunk:, :]
 
         if self.concat_after:
             x_concat = torch.cat((x, self.self_attn(x_q, x, x, mask)), dim=-1)
@@ -114,8 +149,20 @@ class TransformerEncoderLayer(nn.Module):
         if output_cache is not None:
             x = torch.cat([output_cache, x], dim=1)
 
-        fake_cnn_cache = torch.tensor([0.0], dtype=x.dtype, device=x.device)
+        # fake_cnn_cache = torch.tensor([0.0], dtype=x.dtype, device=x.device)
+        fake_cnn_cache = torch.rand(1,256,15)
+        if self.onnx_mode:
+            # fake_cnn_cache = torch.tensor([0.0], dtype=x.dtype, device=x.device)
+            fake_cnn_cache = torch.rand(1,256,15)
+            x = torch.nn.functional.pad(x, (0,0,1,0), mode='constant', value=0)
+            mask = torch.nn.functional.pad(mask, (1,0), mode='constant', value=0)
+            # torch.nn.functional.pad(fake_cnn_cache, (0,0,1,0), mode='constant', value=0)
         return x, mask, fake_cnn_cache
+    
+    def set_onnx_mode(self, onnx_mode=False):
+        """IF output a onnx mode."""
+        self.onnx_mode = onnx_mode
+
 
 
 class ConformerEncoderLayer(nn.Module):
@@ -176,6 +223,8 @@ class ConformerEncoderLayer(nn.Module):
         self.concat_after = concat_after
         self.concat_linear = nn.Linear(size + size, size)
 
+        self.set_onnx_mode(False)
+
     def forward(
         self,
         x: torch.Tensor,
@@ -201,6 +250,11 @@ class ConformerEncoderLayer(nn.Module):
             torch.Tensor: Output tensor (#batch, time, size).
             torch.Tensor: Mask tensor (#batch, time).
         """
+        if self.onnx_mode:
+            x = x[:,1:,:]
+            mask = mask[:,:,1:]
+            output_cache = output_cache[:,1:,:]
+            cnn_cache = cnn_cache[:,:,1:]
 
         # whether to use macaron style
         if self.feed_forward_macaron is not None:
@@ -223,10 +277,29 @@ class ConformerEncoderLayer(nn.Module):
             assert output_cache.size(0) == x.size(0)
             assert output_cache.size(2) == self.size
             assert output_cache.size(1) < x.size(1)
-            chunk = x.size(1) - output_cache.size(1)
-            x_q = x[:, -chunk:, :]
-            residual = residual[:, -chunk:, :]
-            mask = mask[:, -chunk:, :]
+
+            # 参考 https://mp.weixin.qq.com/s/ZLZ4F2E_wYEMODGWzdhDRg 修改代码
+            if self.onnx_mode:
+                chunk = x.size(1) - output_cache.size(1)
+            else:
+                chunk = x.size(1) - output_cache.size(1)
+
+            if self.onnx_mode:
+                # x_q = slice_helper(x, chunk)
+                # residual = slice_helper(residual, chunk)
+                # mask = slice_helper(mask, chunk)
+                x_q = slice_helper2(x, x,output_cache)
+                residual = slice_helper2(residual, x,output_cache)
+                mask = slice_helper2(mask, x,output_cache)
+            else:
+                x_q = x[:, -chunk:, :]
+                residual = residual[:, -chunk:, :]
+                mask = mask[:, -chunk:, :]
+
+            # chunk = x.size(1) - output_cache.size(1)
+            # x_q = x[:, -chunk:, :]
+            # residual = residual[:, -chunk:, :]
+            # mask = mask[:, -chunk:, :]
 
         x_att = self.self_attn(x_q, x, x, mask, pos_emb)
         if self.concat_after:
@@ -264,5 +337,17 @@ class ConformerEncoderLayer(nn.Module):
 
         if output_cache is not None:
             x = torch.cat([output_cache, x], dim=1)
+        
+        if self.onnx_mode:
+            # fake_cnn_cache = torch.tensor([0.0], dtype=x.dtype, device=x.device)
+            fake_cnn_cache = torch.rand(1,256,1)
+            x = torch.nn.functional.pad(x, (0,0,1,0), mode='constant', value=0)
+            mask = torch.nn.functional.pad(mask, (1,0), mode='constant', value=0)
+            new_cnn_cache = torch.nn.functional.pad(new_cnn_cache, (1,0), mode='constant', value=0)
+            # torch.nn.functional.pad(fake_cnn_cache, (0,0,1,0), mode='constant', value=0)
 
         return x, mask, new_cnn_cache
+    
+    def set_onnx_mode(self, onnx_mode=False):
+        """IF output a onnx mode."""
+        self.onnx_mode = onnx_mode

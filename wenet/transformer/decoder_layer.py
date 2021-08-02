@@ -106,6 +106,8 @@ class DecoderLayer(nn.Module):
                 (tgt_q, self.self_attn(tgt_q, tgt, tgt, tgt_q_mask)), dim=-1)
             x = residual + self.concat_linear1(tgt_concat)
         else:
+            show_x = self.self_attn(tgt_q, tgt, tgt, tgt_q_mask)
+            # show_x = tgt_q
             x = residual + self.dropout(
                 self.self_attn(tgt_q, tgt, tgt, tgt_q_mask))
         if not self.normalize_before:
@@ -134,4 +136,4 @@ class DecoderLayer(nn.Module):
         if cache is not None:
             x = torch.cat([cache, x], dim=1)
 
-        return x, tgt_mask, memory, memory_mask
+        return x, tgt_mask, memory, memory_mask # ,show_x

@@ -131,7 +131,12 @@ class TorchAsrDecoder {
   torch::jit::IValue elayers_output_cache_;
   torch::jit::IValue conformer_cnn_cache_;
   std::vector<torch::Tensor> encoder_outs_;
-  int offset_ = 0;  // offset
+  /*
+  
+  对应的，offset_初始值应该设置为1，每次Reset的时候也应重新设置为上述值。
+  */
+  int offset_ = 1;  // offset
+  // int offset_ = 0;  // offset
   // For continuous decoding
   int num_frames_ = 0;
   int global_frame_offset_ = 0;

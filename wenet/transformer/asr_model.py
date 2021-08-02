@@ -541,6 +541,14 @@ class ASRModel(torch.nn.Module):
                 best_index = i
         return hyps[best_index][0]
 
+    # following is set onnx mode
+    def set_onnx_mode(self, onnx_mode=False):
+        """IF output a onnx mode."""
+        self.onnx_mode = onnx_mode
+        self.encoder.set_onnx_mode(onnx_mode)
+        self.decoder.set_onnx_mode(onnx_mode)
+    # above is set onnx mode
+
     @torch.jit.export
     def subsampling_rate(self) -> int:
         """ Export interface for c++ call, return subsampling_rate of the

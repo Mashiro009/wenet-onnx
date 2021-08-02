@@ -6,37 +6,56 @@
 import torch
 
 
-def subsequent_mask(
-        size: int,
-        device: torch.device = torch.device("cpu"),
-) -> torch.Tensor:
-    """Create mask for subsequent steps (size, size).
+# def subsequent_mask(
+#         size: int,
+#         device: torch.device = torch.device("cpu"),
+# ) -> torch.Tensor:
+#     """Create mask for subsequent steps (size, size).
 
-    This mask is used only in decoder which works in an auto-regressive mode.
-    This means the current step could only do attention with its left steps.
+#     This mask is used only in decoder which works in an auto-regressive mode.
+#     This means the current step could only do attention with its left steps.
 
-    In encoder, fully attention is used when streaming is not necessary and
-    the sequence is not long. In this  case, no attention mask is needed.
+#     In encoder, fully attention is used when streaming is not necessary and
+#     the sequence is not long. In this  case, no attention mask is needed.
 
-    When streaming is need, chunk-based attention is used in encoder. See
-    subsequent_chunk_mask for the chunk-based attention mask.
+#     When streaming is need, chunk-based attention is used in encoder. See
+#     subsequent_chunk_mask for the chunk-based attention mask.
 
-    Args:
-        size (int): size of mask
-        str device (str): "cpu" or "cuda" or torch.Tensor.device
-        dtype (torch.device): result dtype
+#     Args:
+#         size (int): size of mask
+#         str device (str): "cpu" or "cuda" or torch.Tensor.device
+#         dtype (torch.device): result dtype
 
-    Returns:
-        torch.Tensor: mask
+#     Returns:
+#         torch.Tensor: mask
 
-    Examples:
-        >>> subsequent_mask(3)
-        [[1, 0, 0],
-         [1, 1, 0],
-         [1, 1, 1]]
-    """
-    ret = torch.ones(size, size, device=device, dtype=torch.bool)
-    return torch.tril(ret, out=ret)
+#     Examples:
+#         >>> subsequent_mask(3)
+#         [[1, 0, 0],
+#          [1, 1, 0],
+#          [1, 1, 1]]
+#     """
+#     ret = torch.ones(size, size, device=device, dtype=torch.bool)
+#     return torch.tril(ret, out=ret)
+
+# tril算子在onnx中不支持，所以更换成如下代码
+def subsequent_mask(size, device="cpu", dtype=torch.bool):
+    """Create mask for subsequent steps (size, size).
+
+    :param int size: size of mask
+    :param str device: "cpu" or "cuda" or torch.Tensor.device
+    :param torch.dtype dtype: result dtype
+    :rtype: torch.Tensor
+    >>> subsequent_mask(3)
+    [[1, 0, 0],
+     [1, 1, 0],
+     [1, 1, 1]]
+    """
+    arange = torch.arange(size)
+    mask = arange.unsqueeze(-1).expand(-1, size) <= arange
+    mask = mask.transpose(0, 1).to(device)
+    return mask
+    # return mask[mask==1]
 
 
 def subsequent_chunk_mask(

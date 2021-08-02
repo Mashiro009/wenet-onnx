@@ -18,6 +18,10 @@ class BaseSubsampling(torch.nn.Module):
 
     def position_encoding(self, offset: int, size: int) -> torch.Tensor:
         return self.pos_enc.position_encoding(offset, size)
+    # 如下代码为了能将x.size传给embedding层用于计算position encoding
+    # 直接传x.size而不是x(Tensor)会导致onnx无法追踪
+    def position_encoding_onnx(self, offset: int, x) -> torch.Tensor:
+        return self.pos_enc.position_encoding_onnx(offset, x)
 
 
 class LinearNoSubsampling(BaseSubsampling):

@@ -45,7 +45,7 @@ class PositionalEncoding(torch.nn.Module):
 
     def forward(self,
                 x: torch.Tensor,
-                offset: int = 0) -> Tuple[torch.Tensor, torch.Tensor]:
+                offset: int = -1) -> Tuple[torch.Tensor, torch.Tensor]:
         """Add positional encoding.
 
         Args:
@@ -56,9 +56,17 @@ class PositionalEncoding(torch.nn.Module):
             torch.Tensor: Encoded tensor. Its shape is (batch, time, ...)
             torch.Tensor: for compatibility to RelPositionalEncoding
         """
-        assert offset + x.size(1) < self.max_len
+        if offset == -1:
+            offset = torch.tensor(0,dtype=torch.int)
+        # assert offset + x.size(1) < self.max_len
         self.pe = self.pe.to(x.device)
-        pos_emb = self.pe[:, offset:offset + x.size(1)]
+        # pos_emb = self.pe[:, offset:offset + x.size(1)]
+        @torch.jit.script
+        def slice_helper(x, offset,tmp):
+            return x[:, offset:offset + tmp.size(1)]
+            # return x[:, -offset: , : ]
+        # tmp = int(offset + int(x.size(1)))
+        pos_emb = slice_helper(self.pe,offset,x)
         x = x * self.xscale + pos_emb
         return self.dropout(x), self.dropout(pos_emb)
 
@@ -80,6 +88,29 @@ class PositionalEncoding(torch.nn.Module):
         """
         assert offset + size < self.max_len
         return self.dropout(self.pe[:, offset:offset + size])
+    
+    def position_encoding_onnx(self, offset: int, x:torch.Tensor) -> torch.Tensor:
+        """ For getting encoding in a streaming fashion
+
+        Attention!!!!!
+        we apply dropout only once at the whole utterance level in a none
+        streaming way, but will call this function several times with
+        increasing input size in a streaming scenario, so the dropout will
+        be applied several times.
+
+        Args:
+            offset (int): start offset
+            size (int): requried size of position encoding
+
+        Returns:
+            torch.Tensor: Corresponding encoding
+        """
+        # assert offset + size < self.max_len
+        @torch.jit.script
+        def slice_helper(x, offset,tmp):
+            return x[:, offset:offset + tmp.size(1) - 1]
+        # return self.dropout(self.pe[:, offset:offset + size])
+        return self.dropout(slice_helper(self.pe,offset,x))
 
 
 class RelPositionalEncoding(PositionalEncoding):
@@ -107,7 +138,13 @@ class RelPositionalEncoding(PositionalEncoding):
         assert offset + x.size(1) < self.max_len
         self.pe = self.pe.to(x.device)
         x = x * self.xscale
-        pos_emb = self.pe[:, offset:offset + x.size(1)]
+        # pos_emb = self.pe[:, offset:offset + x.size(1)]
+        @torch.jit.script
+        def slice_helper(x, offset,tmp):
+            return x[:, offset:offset + tmp.size(1)]
+            # return x[:, -offset: , : ]
+        # tmp = int(offset + int(x.size(1)))
+        pos_emb = slice_helper(self.pe,offset,x)
         return self.dropout(x), self.dropout(pos_emb)
 
 

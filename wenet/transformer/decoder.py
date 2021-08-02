@@ -3,6 +3,7 @@
 #  Apache 2.0  (http://www.apache.org/licenses/LICENSE-2.0)
 """Decoder definition."""
 from typing import Tuple, List, Optional
+from numpy import dtype
 
 import torch
 from typeguard import check_argument_types
@@ -110,6 +111,18 @@ class TransformerDecoder(torch.nn.Module):
         """
         tgt = ys_in_pad
 
+        # @torch.jit.script
+        def make_pad_mask(lengths: torch.Tensor) -> torch.Tensor:
+            batch_size = lengths.size(0)
+            max_len = lengths.max()
+            seq_range = torch.arange(0,
+                                    max_len,
+                                    dtype=torch.int64,
+                                    device=lengths.device)
+            seq_range_expand = seq_range.unsqueeze(0).expand(batch_size, max_len)
+            seq_length_expand = lengths.unsqueeze(-1)
+            mask = seq_range_expand >= seq_length_expand
+            return mask
         # tgt_mask: (B, 1, L)
         tgt_mask = (~make_pad_mask(ys_in_lens).unsqueeze(1)).to(tgt.device)
         # m: (1, L, L)
@@ -118,15 +131,32 @@ class TransformerDecoder(torch.nn.Module):
         # tgt_mask: (B, L, L)
         tgt_mask = tgt_mask & m
         x, _ = self.embed(tgt)
+
+        # i = 0
+
         for layer in self.decoders:
             x, tgt_mask, memory, memory_mask = layer(x, tgt_mask, memory,
                                                      memory_mask)
+            
+            # if i == 0:
+            #     show_x = tmp
+            # i += 1
         if self.normalize_before:
             x = self.after_norm(x)
         if self.use_output_layer:
             x = self.output_layer(x)
         olens = tgt_mask.sum(1)
-        return x, torch.tensor(0.0), olens
+
+        """
+        不过为了方便decoder的输出能直接被使用，
+        我们在导出decoder时去掉了不需要的输出，
+        并且将输出的值进行softmax变换
+        """
+        if self.onnx_mode:
+            # return torch.nn.functional.log_softmax(x, dim=-1)
+            return x, torch.tensor(0.0), olens #,show_x
+        else:
+            return x, torch.tensor(0.0), olens #,show_x
 
     def forward_one_step(
         self,
@@ -170,6 +200,10 @@ class TransformerDecoder(torch.nn.Module):
         if self.use_output_layer:
             y = torch.log_softmax(self.output_layer(y), dim=-1)
         return y, new_cache
+    
+    def set_onnx_mode(self, onnx_mode=False):
+        """IF output a onnx mode."""
+        self.onnx_mode = onnx_mode
 
 
 class BiTransformerDecoder(torch.nn.Module):
