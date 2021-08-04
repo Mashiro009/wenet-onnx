@@ -2,7 +2,7 @@
 
 ## ONNX
 
-[当前仓库代码](https://github.com/Mashiro083/wenet-onnx)在于魔改原始[WeNet](https://github.com/wenet-e2e/wenet)源码，使其可以进行onnx导出
+[当前仓库代码](https://github.com/Mashiro009/wenet-onnx)在于魔改原始[WeNet](https://github.com/wenet-e2e/wenet)源码，使其可以进行onnx导出
 
 ## Quick start
 
@@ -18,6 +18,8 @@ cd examples/onnx/
 ## 现在可以完成的工作
 
 * 现只进行了required_cache_size=-1的测试（即所有的cache均要被使用）
+* 测试了required_cache_size==0的情况，基本正常
+* required_cache_size>0的情况无法运行
 * 导出transformer的encoder,decoder,ctc 并测试
 * 导出unified_transformer的encoder,decoder,ctc 并测试
 * 导出unified_conformer的encoder,decoder,ctc 未测试

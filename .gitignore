@@ -54,3 +54,4 @@ examples/onnx/tools
 examples/onnx/onnx_encoder.py
 examples/onnx/onnx_all.py
 examples/onnx/onnx_encoder_conformer.py
+examples/onnx/run_onnx_my.sh

@@ -21,6 +21,12 @@ from wenet.utils.checkpoint import load_checkpoint
 def to_numpy(tensor):
     return tensor.detach().cpu().numpy() if tensor.requires_grad else tensor.cpu().numpy()
 
+required_cache_size_num=-1
+# required_cache_size_num=0
+# 0 和 -1 是正常的，大于0会转不过去
+# required_cache_size_num=10
+# 不行，根本转不过去，max语句让系统无法处理
+# 这个num在小于x.size时可以跑起来，但是在runtime时又不能让x小于num
 
 
 def output_encoder_transformer_onnx(encoder_model,encoder_model_path):
@@ -28,7 +34,7 @@ def output_encoder_transformer_onnx(encoder_model,encoder_model_path):
     inputs = [torch.randn(1,60*(i+1),80) for i in range(5)]
     dummy_input1 = inputs[0]
     offset = torch.tensor(1,dtype=torch.int64)
-    required_cache_size = torch.tensor(-1,dtype=torch.int64)
+    required_cache_size = torch.tensor(required_cache_size_num,dtype=torch.int64)
     # subsampling_cache=None
     # elayers_output_cache=None
     # conformer_cnn_cache=None
@@ -59,7 +65,7 @@ def check_encoder_onnx_and_pytorch(encoder_model,encoder_model_path):
     # following is test torch encoder's function forward_chunk_onnx code
     inputs = [torch.randn(1,60*(i+1),80) for i in range(5)]
     offset = torch.tensor(1,dtype=torch.int64)
-    required_cache_size = torch.tensor(-1,dtype=torch.int64)
+    required_cache_size = torch.tensor(required_cache_size_num,dtype=torch.int64)
     subsampling_cache=torch.rand(1,1,256)
     elayers_output_cache=torch.rand(12,1,1,256)
     conformer_cnn_cache=torch.rand(12,1,256,15)
@@ -81,7 +87,7 @@ def check_encoder_onnx_and_pytorch(encoder_model,encoder_model_path):
     encoder_model.forward = encoder_model.forward_chunk
     encoder_model.set_onnx_mode(False)
     offset = torch.tensor(0,dtype=torch.int64)
-    required_cache_size = torch.tensor(-1,dtype=torch.int64)
+    required_cache_size = torch.tensor(required_cache_size_num,dtype=torch.int64)
     subsampling_cache=None
     elayers_output_cache=None
     conformer_cnn_cache=None
@@ -96,6 +102,7 @@ def check_encoder_onnx_and_pytorch(encoder_model,encoder_model_path):
             elayers_output_cache,
             conformer_cnn_cache)
         torch_outputs.append(out2)
+        print(subsampling_cache.size())
         offset += out2.size(1)
 
     # above is test torch encoder's function forward_chunk code
@@ -117,7 +124,7 @@ def check_encoder_onnx_and_pytorch(encoder_model,encoder_model_path):
 
     # prepare data
     offset = torch.tensor(1,dtype=torch.int64)
-    required_cache_size = torch.tensor(-1,dtype=torch.int64)
+    required_cache_size = torch.tensor(required_cache_size_num,dtype=torch.int64)
     subsampling_cache=torch.rand(1,1,256)
     elayers_output_cache=torch.rand(12,1,1,256)
     conformer_cnn_cache=torch.rand(12,1,256,15)
@@ -135,9 +142,14 @@ def check_encoder_onnx_and_pytorch(encoder_model,encoder_model_path):
                     #   ort_session.get_inputs()[5].name: to_numpy(conformer_cnn_cache)
                     }
         ort_outs = ort_session.run(None, ort_inputs)
+        print(ort_outs[0].shape)
         offset += ort_outs[0].shape[1]
         subsampling_cache = ort_outs[1]
+        print(subsampling_cache.shape)
         elayers_output_cache = ort_outs[2]
+        if i == 0 or i == 0:
+            continue
+        print(i)
         np.testing.assert_allclose(to_numpy(torch_outputs[i]), ort_outs[0], rtol=1e-03, atol=1e-05)
         np.testing.assert_allclose(to_numpy(chunk_onnx_outputs[i]), ort_outs[0], rtol=1e-03, atol=1e-05)
         np.testing.assert_allclose(to_numpy(chunk_onnx_outputs[i]), to_numpy(torch_outputs[i]), rtol=1e-03, atol=1e-05)
