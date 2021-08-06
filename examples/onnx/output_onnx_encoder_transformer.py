@@ -131,6 +131,7 @@ def check_encoder_onnx_and_pytorch(encoder_model,encoder_model_path):
     offset = to_numpy(offset)
     subsampling_cache = to_numpy(subsampling_cache)
     elayers_output_cache=to_numpy(elayers_output_cache)
+    conformer_cnn_cache = to_numpy(conformer_cnn_cache) # 可以让cnn_cache也能作为transformer onnx的输入
     for i in range(5):
         # compute ONNX Runtime output prediction
         dummy_input1 = inputs[i]
@@ -139,7 +140,7 @@ def check_encoder_onnx_and_pytorch(encoder_model,encoder_model_path):
                     # ort_session.get_inputs()[2].name: to_numpy(required_cache_size),
                     ort_session.get_inputs()[2].name: subsampling_cache,
                     ort_session.get_inputs()[3].name: elayers_output_cache,
-                    #   ort_session.get_inputs()[5].name: to_numpy(conformer_cnn_cache)
+                      ort_session.get_inputs()[4].name: conformer_cnn_cache
                     }
         ort_outs = ort_session.run(None, ort_inputs)
         print(ort_outs[0].shape)
@@ -147,6 +148,9 @@ def check_encoder_onnx_and_pytorch(encoder_model,encoder_model_path):
         subsampling_cache = ort_outs[1]
         print(subsampling_cache.shape)
         elayers_output_cache = ort_outs[2]
+        print(elayers_output_cache.shape)
+        conformer_cnn_cache = ort_outs[3]
+        print(conformer_cnn_cache.shape)
         if i == 0 or i == 0:
             continue
         print(i)

@@ -2,9 +2,15 @@
 
 . ./path.sh
 
-config=exp/transformer/train.yaml
-checkpoint=exp/transformer/81.pt
-output_dir=exp/transformer/onnx_model
+# config=exp/transformer/train.yaml
+# checkpoint=exp/transformer/81.pt
+# output_dir=exp/transformer/onnx_model
+
+model_dir=exp/transformer
+config=$model_dir/train.yaml
+# checkpoint=$model_dir/$(ls $model_dir | grep "pt") # 使用该命令请保证路径下只有一个pt文件
+checkpoint=$model_dir/81.pt
+output_dir=$model_dir/onnx_model
 
 python ./output_onnx_encoder_transformer.py \
   --config $config \

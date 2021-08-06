@@ -115,7 +115,8 @@ class ConvolutionModule(nn.Module):
             # It's better we just return None if no cache is requried,
             # However, for JIT export, here we just fake one tensor instead of
             # None.
-            new_cache = torch.tensor([0.0], dtype=x.dtype, device=x.device)
+            # new_cache = torch.tensor([0.0], dtype=x.dtype, device=x.device)
+            new_cache = cache
 
         # GLU mechanism
         x = self.pointwise_conv1(x)  # (batch, 2*channel, dim)

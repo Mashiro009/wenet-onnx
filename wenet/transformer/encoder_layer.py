@@ -153,7 +153,8 @@ class TransformerEncoderLayer(nn.Module):
         fake_cnn_cache = torch.rand(1,256,15)
         if self.onnx_mode:
             # fake_cnn_cache = torch.tensor([0.0], dtype=x.dtype, device=x.device)
-            fake_cnn_cache = torch.rand(1,256,15)
+            # fake_cnn_cache = torch.rand(1,256,15)
+            fake_cnn_cache = cnn_cache # 试图让transformer encoder onnx 也能有cnn_cache的输入
             x = torch.nn.functional.pad(x, (0,0,1,0), mode='constant', value=0)
             mask = torch.nn.functional.pad(mask, (1,0), mode='constant', value=0)
             # torch.nn.functional.pad(fake_cnn_cache, (0,0,1,0), mode='constant', value=0)

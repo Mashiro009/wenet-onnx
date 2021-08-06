@@ -14,6 +14,8 @@ cd examples/onnx/
 ./run_onnx.sh
 ```
 
+导出的模型可以使用[wenet online onnx decoder](https://github.com/Mashiro009/wenet-online-decoder-onnx)代码进行测试
+
 
 ## 现在可以完成的工作
 
@@ -68,6 +70,7 @@ cd examples/onnx/
   6. line 162 set_onnx_mode函数的定义
   7. ConformerEncoderLayer line 226,253,291 原理同transformer一致
   8. line 341 与transformer不同的是,该处的new_cnn_cache是有意义的,也要恢复冗余时间维
+  9. line 156 更换了fake_cnn_cache的赋值,让transformer encoder onnx也能有cnn_cache的输入
 
 - wenet/transformer/embedding.py
   1. line 48,59 PositionalEncoding forward的offset默认值调整为-1，是因为decoder的forward调用embedding时传不进来offset,使用的是默认值,而offset的类型不能再使用int（onnx的要求），所以使用了判断是否为-1（int）调整为0（Tensor）的"巧计"
@@ -85,6 +88,7 @@ cd examples/onnx/
   
 - wenet/transformer/convolution.py
   1. 添加了一些注释
+  2. line 119 更换了new_cache的赋值,让不使用因果卷积的conformer也能正常运行
 
 - wenet/transformer/asr_model.py
   1. line 544 添加了set_onnx_mode函数
